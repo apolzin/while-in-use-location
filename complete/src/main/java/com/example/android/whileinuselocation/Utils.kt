@@ -22,7 +22,7 @@ import androidx.core.content.edit
 /**
  * Returns the `location` object as a human readable string.
  */
-fun Location?.toText(): String {
+fun Location?.toText():String {
     return if (this != null) {
         "($latitude, $longitude)"
     } else {
@@ -35,7 +35,7 @@ fun Location?.toText(): String {
  */
 internal object SharedPreferenceUtil {
 
-    const val KEY_FOREGROUND_ENABLED = "tracking_foreground_location"
+    const val KEY_FOREGROUND_ONLY_ENABLED = "tracking_foreground_only_location"
 
     /**
      * Returns true if requesting location updates, otherwise returns false.
@@ -45,7 +45,7 @@ internal object SharedPreferenceUtil {
     fun getLocationTrackingPref(context: Context): Boolean =
         context.getSharedPreferences(
             context.getString(R.string.preference_file_key), Context.MODE_PRIVATE)
-            .getBoolean(KEY_FOREGROUND_ENABLED, false)
+            .getBoolean(KEY_FOREGROUND_ONLY_ENABLED, false)
 
     /**
      * Stores the location updates state in SharedPreferences.
@@ -55,6 +55,6 @@ internal object SharedPreferenceUtil {
         context.getSharedPreferences(
             context.getString(R.string.preference_file_key),
             Context.MODE_PRIVATE).edit {
-                putBoolean(KEY_FOREGROUND_ENABLED, requestingLocationUpdates)
+                putBoolean(KEY_FOREGROUND_ONLY_ENABLED, requestingLocationUpdates)
             }
 }

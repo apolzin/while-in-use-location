@@ -28,9 +28,10 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import android.util.Log
+
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -59,20 +60,9 @@ class ForegroundOnlyLocationService : Service() {
 
     private lateinit var notificationManager: NotificationManager
 
-    // TODO: Step 1.1, Review variables (no changes).
-    // FusedLocationProviderClient - Main class for receiving location updates.
     private lateinit var fusedLocationProviderClient: FusedLocationProviderClient
-
-    // LocationRequest - Requirements for the location updates, i.e., how often you should receive
-    // updates, the priority, etc.
     private lateinit var locationRequest: LocationRequest
-
-    // LocationCallback - Called when FusedLocationProviderClient has a new Location.
     private lateinit var locationCallback: LocationCallback
-
-    // Used only for local storage of the last known location. Usually, this would be saved to your
-    // database, but because this is a simplified sample without a full database, we only need the
-    // last location to create a Notification if the user navigates away from the app.
     private var currentLocation: Location? = null
 
     override fun onCreate() {
@@ -80,60 +70,19 @@ class ForegroundOnlyLocationService : Service() {
 
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // TODO: Step 1.2, Review the FusedLocationProviderClient.
+        locationRequest = LocationRequest()
+        locationRequest.interval = UPDATE_INTERVAL_IN_MILLISECONDS
+        locationRequest.fastestInterval = FASTEST_UPDATE_INTERVAL_IN_MILLISECONDS
+        locationRequest.priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // TODO: Step 1.3, Create a LocationRequest.
-        locationRequest = LocationRequest().apply {
-            // Sets the desired interval for active location updates. This interval is inexact. You
-            // may not receive updates at all if no location sources are available, or you may
-            // receive them less frequently than requested. You may also receive updates more
-            // frequently than requested if other applications are requesting location at a more
-            // frequent interval.
-            //
-            // IMPORTANT NOTE: Apps running on Android 8.0 and higher devices (regardless of
-            // targetSdkVersion) may receive updates less frequently than this interval when the app
-            // is no longer in the foreground.
-            interval = TimeUnit.SECONDS.toMillis(60)
-
-            // Sets the fastest rate for active location updates. This interval is exact, and your
-            // application will never receive updates more frequently than this value.
-            fastestInterval = TimeUnit.SECONDS.toMillis(30)
-
-            // Sets the maximum time when batched location updates are delivered. Updates may be
-            // delivered sooner than this interval.
-            maxWaitTime = TimeUnit.MINUTES.toMillis(2)
-
-            priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-        }
-
-        // TODO: Step 1.4, Initialize the LocationCallback.
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult?) {
                 super.onLocationResult(locationResult)
 
                 if (locationResult?.lastLocation != null) {
-
-                    // Normally, you want to save a new location to a database. We are simplifying
-                    // things a bit and just saving it as a local variable, as we only need it again
-                    // if a Notification is created (when the user navigates away from app).
-                    currentLocation = locationResult.lastLocation
-
-                    // Notify our Activity that a new location was added. Again, if this was a
-                    // production app, the Activity would be listening for changes to a database
-                    // with new locations, but we are simplifying things a bit to focus on just
-                    // learning the location side of things.
-                    val intent = Intent(ACTION_FOREGROUND_ONLY_LOCATION_BROADCAST)
-                    intent.putExtra(EXTRA_LOCATION, currentLocation)
-                    LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
-
-                    // Updates notification content if this service is running as a foreground
-                    // service.
-                    if (serviceRunningInForeground) {
-                        notificationManager.notify(
-                            NOTIFICATION_ID,
-                            generateNotification(currentLocation))
-                    }
+                    onNewLocation(locationResult.lastLocation)
                 } else {
                     Log.d(TAG, "Location missing in callback.")
                 }
@@ -148,7 +97,7 @@ class ForegroundOnlyLocationService : Service() {
             intent.getBooleanExtra(EXTRA_CANCEL_LOCATION_TRACKING_FROM_NOTIFICATION, false)
 
         if (cancelLocationTrackingFromNotification) {
-            unsubscribeToLocationUpdates()
+            stopTrackingLocation()
             stopSelf()
         }
         // Tells the system not to recreate the service after it's been killed.
@@ -186,7 +135,7 @@ class ForegroundOnlyLocationService : Service() {
         // we do nothing.
         if (!configurationChange && SharedPreferenceUtil.getLocationTrackingPref(this)) {
             Log.d(TAG, "Start foreground service")
-            val notification = generateNotification(currentLocation)
+            val notification = generateNotification()
             startForeground(NOTIFICATION_ID, notification)
             serviceRunningInForeground = true
         }
@@ -204,9 +153,8 @@ class ForegroundOnlyLocationService : Service() {
         configurationChange = true
     }
 
-    fun subscribeToLocationUpdates() {
-        Log.d(TAG, "subscribeToLocationUpdates()")
-
+    fun startTrackingLocation() {
+        Log.d(TAG, "startTrackingLocation()")
         SharedPreferenceUtil.saveLocationTrackingPref(this, true)
 
         // Binding to this service doesn't actually trigger onStartCommand(). That is needed to
@@ -215,7 +163,6 @@ class ForegroundOnlyLocationService : Service() {
         startService(Intent(applicationContext, ForegroundOnlyLocationService::class.java))
 
         try {
-            // TODO: Step 1.5, Subscribe to location changes.
             fusedLocationProviderClient.requestLocationUpdates(
                 locationRequest, locationCallback, Looper.myLooper())
         } catch (unlikely: SecurityException) {
@@ -224,11 +171,10 @@ class ForegroundOnlyLocationService : Service() {
         }
     }
 
-    fun unsubscribeToLocationUpdates() {
-        Log.d(TAG, "unsubscribeToLocationUpdates()")
+    fun stopTrackingLocation() {
+        Log.d(TAG, "stopTrackingLocation()")
 
         try {
-            // TODO: Step 1.6, Unsubscribe to location changes.
             val removeTask = fusedLocationProviderClient.removeLocationUpdates(locationCallback)
             removeTask.addOnCompleteListener { task ->
                 if (task.isSuccessful) {
@@ -238,17 +184,35 @@ class ForegroundOnlyLocationService : Service() {
                     Log.d(TAG, "Failed to remove Location Callback.")
                 }
             }
+
             SharedPreferenceUtil.saveLocationTrackingPref(this, false)
+
         } catch (unlikely: SecurityException) {
             SharedPreferenceUtil.saveLocationTrackingPref(this, true)
             Log.e(TAG, "Lost location permissions. Couldn't remove updates. $unlikely")
         }
     }
 
+    private fun onNewLocation(location: Location) {
+        Log.d(TAG, "onNewLocation(): $location")
+
+        currentLocation = location
+
+        // Notify anyone listening for broadcasts about the new location.
+        val intent = Intent(ACTION_FOREGROUND_ONLY_LOCATION_BROADCAST)
+        intent.putExtra(EXTRA_LOCATION, location)
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+
+        // Update notification content if running as a foreground service.
+        if (serviceRunningInForeground) {
+            notificationManager.notify(NOTIFICATION_ID, generateNotification())
+        }
+    }
+
     /*
      * Generates a BIG_TEXT_STYLE Notification that represent latest location.
      */
-    private fun generateNotification(location: Location?): Notification {
+    private fun generateNotification(): Notification {
         Log.d(TAG, "generateNotification()")
 
         // Main steps for building a BIG_TEXT_STYLE notification:
@@ -259,7 +223,7 @@ class ForegroundOnlyLocationService : Service() {
         //      4. Build and issue the notification
 
         // 0. Get data
-        val mainNotificationText = location?.toText() ?: getString(R.string.no_location_text)
+        val mainNotificationText = currentLocation.toText()
         val titleText = getString(R.string.app_name)
 
         // 1. Create Notification Channel for O+ and beyond devices (26+).
@@ -310,7 +274,7 @@ class ForegroundOnlyLocationService : Service() {
             )
             .addAction(
                 R.drawable.ic_cancel,
-                getString(R.string.stop_location_updates_button_text),
+                getString(R.string.disable_foreground_only_location),
                 servicePendingIntent
             )
             .build()
@@ -326,7 +290,6 @@ class ForegroundOnlyLocationService : Service() {
     }
 
     companion object {
-        private const val TAG = "ForegroundOnlyLocationService"
 
         private const val PACKAGE_NAME = "com.example.android.whileinuselocation"
 
@@ -338,8 +301,24 @@ class ForegroundOnlyLocationService : Service() {
         private const val EXTRA_CANCEL_LOCATION_TRACKING_FROM_NOTIFICATION =
             "$PACKAGE_NAME.extra.CANCEL_LOCATION_TRACKING_FROM_NOTIFICATION"
 
-        private const val NOTIFICATION_ID = 12345678
 
-        private const val NOTIFICATION_CHANNEL_ID = "while_in_use_channel_01"
     }
 }
+
+private const val TAG = "ForegroundOnlyLocationService"
+
+/*
+ * The desired interval for location updates. Inexact. Updates may be
+ * more or less frequent.
+ */
+private val UPDATE_INTERVAL_IN_MILLISECONDS: Long = TimeUnit.SECONDS.toMillis(10)
+
+/*
+ * The fastest rate for active location updates. Updates will never be
+ * more frequent than this value.
+ */
+private val FASTEST_UPDATE_INTERVAL_IN_MILLISECONDS = UPDATE_INTERVAL_IN_MILLISECONDS / 2
+
+private const val NOTIFICATION_ID = 12345678
+
+private const val NOTIFICATION_CHANNEL_ID = "while_in_use_channel_01"

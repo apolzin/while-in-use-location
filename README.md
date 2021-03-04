@@ -2,7 +2,7 @@ While-in-use Location Codelab Repository
 ===============================
 
 This repository is to be used with the while-in-use location codelab:
-https://developers.google.com/codelabs/while-in-use-location
+https://codelabs.developers.google.com/codelabs/while-in-use
 
 It teaches you how to handle new location permissions added in Android 10.
 
